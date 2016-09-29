@@ -14,24 +14,39 @@
 #include <AsyncMqttClient.h>
 AsyncMqttClient mqttClient;
 
+// Name for this ESP
+char* espName;
+
+/* ========================================================================================================
+                                           __
+                              ______ _____/  |_ __ ________
+                             /  ___// __ \   __\  |  \____ \
+                             \___ \\  ___/|  | |  |  /  |_> >
+                            /____  >\___  >__| |____/|   __/
+                                 \/     \/           |__|
+   ======================================================================================================== */
+
 void setup() {
+
+    SPIFFS.begin();
     Serial.begin(115200);
 
     WiFiManager wifiManager;
+
+    // uncomment the following line to reset WIFI settings
     //wifiManager.resetSettings();
 
     //fetches ssid and pass from eeprom and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //here  "AutoConnectAP"
-    //and goes into a blocking loop awaiting configuration
-    wifiManager.autoConnect("AutoConnectAP");
-    //or use this for auto generated name ESP + ChipID
-    //wifiManager.autoConnect();
+    //if it does not connect it starts an access point
+    wifiManager.autoConnect();
 
-
-    //if you get here you have connected to the WiFi
+    //print out obtained IP address
     Serial.print("Connected with IP: ");
     Serial.println(WiFi.localIP());
+
+    // read ESP name from configuration
+    Serial.print("ESP Name: ");
+    Serial.println(espName);
 
     mqttClient.onConnect(onMqttConnect);
     mqttClient.onDisconnect(onMqttDisconnect);
@@ -39,45 +54,44 @@ void setup() {
     mqttClient.onUnsubscribe(onMqttUnsubscribe);
     mqttClient.onMessage(onMqttMessage);
     mqttClient.onPublish(onMqttPublish);
-    mqttClient.setServer(IPAddress(10,0,50,200), 1883);
+
+    //mqttClient.setServer(IPAddress(10,0,0,100), 1883);
+    mqttClient.setServer("mqtthost", 1883);
+
     mqttClient
       .setKeepAlive(5)
       //.setWill("topic/online", 2, true, "no")
       //.setCredentials("user", "password")
-      .setClientId("name");
+      .setClientId(espName);
+
     Serial.println("Connecting to MQTT...");
     mqttClient.connect();
 
-    SPIFFS.begin();
 }
+
+/* ========================================================================================================
+               _____   ______________________________ ___________                    __
+              /     \  \_____  \__    ___/\__    ___/ \_   _____/__  __ ____   _____/  |_  ______
+             /  \ /  \  /  / \  \|    |     |    |     |    __)_\  \/ // __ \ /    \   __\/  ___/
+            /    Y    \/   \_/.  \    |     |    |     |        \\   /\  ___/|   |  \  |  \___ \
+            \____|__  /\_____\ \_/____|     |____|    /_______  / \_/  \___  >___|  /__| /____  >
+                    \/        \__>                            \/           \/     \/          \/
+   ======================================================================================================== */
 
 void onMqttConnect() {
   Serial.println("** Connected to the broker **");
-  uint16_t packetIdSub = mqttClient.subscribe("test/lol", 2);
-  Serial.print("Subscribing at QoS 2, packetId: ");
-  Serial.println(packetIdSub);
-  mqttClient.publish("test/lol", 0, true, "test 1");
-  Serial.println("Publishing at QoS 0");
-  uint16_t packetIdPub1 = mqttClient.publish("test/lol", 1, true, "test 2");
-  Serial.print("Publishing at QoS 1, packetId: ");
-  Serial.println(packetIdPub1);
-  uint16_t packetIdPub2 = mqttClient.publish("test/lol", 2, true, "test 3");
-  Serial.print("Publishing at QoS 2, packetId: ");
-  Serial.println(packetIdPub2);
+
+  // subscriptions go here
+  // uint16_t packedId = mqttClient.subscribe("test/something", 2);
+
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
   Serial.println("** Subscribe acknowledged **");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-  Serial.print("  qos: ");
-  Serial.println(qos);
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
   Serial.println("** Unsubscribe acknowledged **");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -86,42 +100,27 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   mqttClient.connect();
 }
 
-int R = 255;
-int G = 0;
-int B = 0;
-
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   Serial.println("** Publish received **");
   Serial.print("  topic: ");
   Serial.println(topic);
   Serial.print("  payload: ");
   Serial.println(payload);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
-  Serial.print("  retain: ");
-  Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
-  if (payload[0] == 'R') {
-    R = 255; B=0; G=0;
-  }
-  if (payload[0] == 'B') {
-    R = 0; B=255; G=0;
-  }
 }
-
 
 void onMqttPublish(uint16_t packetId) {
-  Serial.println("** Publish acknowledged **");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
 }
 
+/* ========================================================================================================
+                         _____         .__         .____
+                        /     \ _____  |__| ____   |    |    ____   ____ ______
+                       /  \ /  \\__  \ |  |/    \  |    |   /  _ \ /  _ \\____ \
+                      /    Y    \/ __ \|  |   |  \ |    |__(  <_> |  <_> )  |_> >
+                      \____|__  (____  /__|___|  / |_______ \____/ \____/|   __/
+                              \/     \/        \/          \/            |__|
+   ======================================================================================================== */
+
 void loop() {
+  // sample publish
+  // uint16_t packedId = mqttClient.publish("test/lol", 0, true, "test 1");
 }
