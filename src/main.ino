@@ -10,12 +10,34 @@
 #include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
 #include <ESP8266WiFi.h>
 
+// static const uint8_t D0   = 16;
+// static const uint8_t D1   = 5;
+// static const uint8_t D2   = 4;
+// static const uint8_t D3   = 0;
+// static const uint8_t D4   = 2;
+// static const uint8_t D5   = 14;
+// static const uint8_t D6   = 12;
+// static const uint8_t D7   = 13;
+// static const uint8_t D8   = 15;
+// static const uint8_t D9   = 3;
+// static const uint8_t D10  = 1;
+
+// PIN used to reset configuration.  Enables internal Pull Up.  Ground to reset.
+#define PIN_RESET 13 // Labeled D7 on ESP12E DEVKIT V2
+#define RESET_DURATION 30
+
 // MQTT
 #include <AsyncMqttClient.h>
 AsyncMqttClient mqttClient;
+char mqtt_server[40];
+uint mqtt_port;
+char mqtt_user[20];
+char mqtt_pass[20];
 
 // Name for this ESP
-char* espName;
+char node_name[20];
+char topic_status[50];
+char topic_control[50];
 
 /* ========================================================================================================
                                            __
@@ -26,46 +48,138 @@ char* espName;
                                  \/     \/           |__|
    ======================================================================================================== */
 
+bool shouldSaveConfig = false;
+void saveConfigCallback()
+{
+  shouldSaveConfig = true;
+}
+
+void saveSetting(const char* key, char* value) {
+  char filename[80] = "/config_";
+  strcat(filename, key);
+
+  File f = SPIFFS.open(filename, "w");
+  if (f) {
+    f.print(value);
+  }
+  f.close();
+}
+
+String readSetting(const char* key) {
+  char filename[80] = "/config_";
+  strcat(filename, key);
+
+  String output;
+
+  File f = SPIFFS.open(filename, "r");
+  if (f) {
+    output = f.readString();
+  }
+  f.close();
+  return output;
+}
+
 void setup() {
 
-    SPIFFS.begin();
-    Serial.begin(115200);
+  Serial.begin(115200);
 
-    WiFiManager wifiManager;
+  SPIFFS.begin();
 
-    // uncomment the following line to reset WIFI settings
-    //wifiManager.resetSettings();
+  WiFiManager wifiManager;
 
-    //fetches ssid and pass from eeprom and tries to connect
-    //if it does not connect it starts an access point
-    wifiManager.autoConnect();
+  // short pause on startup to look for settings RESET
+  Serial.println("Waiting for reset");
+  pinMode(PIN_RESET, INPUT_PULLUP);
+  bool reset = false;
+  int resetTimeRemaining = RESET_DURATION;
+  while (!reset && resetTimeRemaining-- > 0) {
+    if (digitalRead(PIN_RESET) == 0) {
+      reset = true;
+    }
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println("");
+  if (reset) {
+    Serial.println("Resetting");
+    wifiManager.resetSettings();
+  }
 
-    //print out obtained IP address
-    Serial.print("Connected with IP: ");
-    Serial.println(WiFi.localIP());
+  // add bonus parameters to WifiManager
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
 
-    // read ESP name from configuration
-    Serial.print("ESP Name: ");
-    Serial.println(espName);
+  WiFiManagerParameter custom_mqtt_server("server", "mqtt server", "", 40);
+  wifiManager.addParameter(&custom_mqtt_server);
 
-    mqttClient.onConnect(onMqttConnect);
-    mqttClient.onDisconnect(onMqttDisconnect);
-    mqttClient.onSubscribe(onMqttSubscribe);
-    mqttClient.onUnsubscribe(onMqttUnsubscribe);
-    mqttClient.onMessage(onMqttMessage);
-    mqttClient.onPublish(onMqttPublish);
+  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", "1338", 6);
+  wifiManager.addParameter(&custom_mqtt_port);
 
-    //mqttClient.setServer(IPAddress(10,0,0,100), 1883);
-    mqttClient.setServer("mqtthost", 1883);
+  WiFiManagerParameter custom_mqtt_user("user", "mqtt user", "", 20);
+  wifiManager.addParameter(&custom_mqtt_user);
 
-    mqttClient
-      .setKeepAlive(5)
-      //.setWill("topic/online", 2, true, "no")
-      //.setCredentials("user", "password")
-      .setClientId(espName);
+  WiFiManagerParameter custom_mqtt_pass("pass", "mqtt pass", "", 20);
+  wifiManager.addParameter(&custom_mqtt_pass);
 
-    Serial.println("Connecting to MQTT...");
-    mqttClient.connect();
+  WiFiManagerParameter custom_node_name("nodename", "node name", "rename_me", sizeof(node_name));
+  wifiManager.addParameter(&custom_node_name);
+
+  //fetches ssid and pass from eeprom and tries to connect
+  //if it does not connect it starts an access point
+  wifiManager.autoConnect();
+
+  //print out obtained IP address
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+
+  if (shouldSaveConfig) {
+    Serial.println("Saving configuration...");
+    saveSetting("mqtt_server", (char *) custom_mqtt_server.getValue());
+    saveSetting("mqtt_port", (char *) custom_mqtt_port.getValue());
+    saveSetting("mqtt_user", (char *) custom_mqtt_user.getValue());
+    saveSetting("mqtt_pass", (char *) custom_mqtt_pass.getValue());
+    saveSetting("node_name", (char *) custom_node_name.getValue());
+  }
+
+  // read settings from configuration
+  readSetting("mqtt_server").toCharArray(mqtt_server, sizeof(mqtt_server));
+  mqtt_port = readSetting("mqtt_port").toInt();
+  readSetting("mqtt_user").toCharArray(mqtt_user, sizeof(mqtt_user));
+  readSetting("mqtt_pass").toCharArray(mqtt_pass, sizeof(mqtt_pass));
+  readSetting("node_name").toCharArray(node_name, sizeof(node_name));
+
+  // read ESP name from configuration
+  Serial.print("Node Name: ");
+  Serial.println(node_name);
+
+  strcat(topic_status, "esp/");
+  strcat(topic_status, node_name);
+  strcat(topic_status, "/status");
+
+  strcat(topic_control, "esp/");
+  strcat(topic_control, node_name);
+  strcat(topic_control, "/control");
+
+  mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.onSubscribe(onMqttSubscribe);
+  mqttClient.onUnsubscribe(onMqttUnsubscribe);
+  mqttClient.onMessage(onMqttMessage);
+  mqttClient.onPublish(onMqttPublish);
+
+  mqttClient.setServer(mqtt_server, mqtt_port);
+
+  mqttClient.setKeepAlive(5);
+
+  mqttClient.setWill(topic_status, 2, true, "offline");
+
+  if (strlen(mqtt_user) > 0) {
+    mqttClient.setCredentials(mqtt_user, mqtt_pass);
+  }
+
+  mqttClient.setClientId(node_name);
+
+  Serial.println("Connecting to MQTT...");
+  mqttClient.connect();
 
 }
 
@@ -78,16 +192,20 @@ void setup() {
                     \/        \__>                            \/           \/     \/          \/
    ======================================================================================================== */
 
+uint16_t controlSubscribePacketId;
+
 void onMqttConnect() {
   Serial.println("** Connected to the broker **");
-
-  // subscriptions go here
-  // uint16_t packedId = mqttClient.subscribe("test/something", 2);
-
+  // subscribe to the control topic
+  controlSubscribePacketId = mqttClient.subscribe(topic_control, 2);
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
   Serial.println("** Subscribe acknowledged **");
+  // once successfully subscribed to control, public online status
+  if (packetId == controlSubscribePacketId) {
+    mqttClient.publish(topic_status, 2, true, "online");
+  }
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
