@@ -10,18 +10,6 @@
 #include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
 #include <ESP8266WiFi.h>
 
-// static const uint8_t D0   = 16;
-// static const uint8_t D1   = 5;
-// static const uint8_t D2   = 4;
-// static const uint8_t D3   = 0;
-// static const uint8_t D4   = 2;
-// static const uint8_t D5   = 14;
-// static const uint8_t D6   = 12;
-// static const uint8_t D7   = 13;
-// static const uint8_t D8   = 15;
-// static const uint8_t D9   = 3;
-// static const uint8_t D10  = 1;
-
 // PIN used to reset configuration.  Enables internal Pull Up.  Ground to reset.
 #define PIN_RESET 13 // Labeled D7 on ESP12E DEVKIT V2
 #define RESET_DURATION 30
@@ -111,7 +99,7 @@ void setup() {
   WiFiManagerParameter custom_mqtt_server("server", "mqtt server", "", 40);
   wifiManager.addParameter(&custom_mqtt_server);
 
-  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", "1338", 6);
+  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", "1883", 6);
   wifiManager.addParameter(&custom_mqtt_port);
 
   WiFiManagerParameter custom_mqtt_user("user", "mqtt user", "", 20);
@@ -171,6 +159,13 @@ void setup() {
   mqttClient.setKeepAlive(5);
 
   mqttClient.setWill(topic_status, 2, true, "offline");
+
+  Serial.print("MQTT: ");
+  Serial.print(mqtt_user);
+  Serial.print("@");
+  Serial.print(mqtt_server);
+  Serial.print(":");
+  Serial.println(mqtt_port);
 
   if (strlen(mqtt_user) > 0) {
     mqttClient.setCredentials(mqtt_user, mqtt_pass);
